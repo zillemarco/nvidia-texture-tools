@@ -59,5 +59,5 @@ INSTALL(TARGETS nvtt
 INSTALL(FILES nvtt.h nvtt_wrapper.h DESTINATION include/nvtt)
 
 
-ADD_SUBDIRECTORY(tools)
-ADD_SUBDIRECTORY(tests)
+# ADD_SUBDIRECTORY(tools)
+# ADD_SUBDIRECTORY(tests)
