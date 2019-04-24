@@ -634,7 +634,7 @@ bool Surface::load(const char * fileName, bool * hasAlpha/*= NULL*/)
     }
 
     // @@ Have loadFloat allocate the image with the desired number of channels.
-    //img->resizeChannelCount(4);
+    img->resizeChannelCount(4); // Block compressors expect a 4 channel texture.
 
     delete m->image;
     m->image = img.release();
@@ -1499,23 +1499,46 @@ static float toSrgb(float f) {
     return f;
 }
 
-void Surface::toSrgb()
-{
+// sRGB approximation from: http://chilliant.blogspot.com/2012/08/srgb-approximations-for-hlsl.html
+static float toSrgbFast(float f) {
+    f = saturate(f);
+    float s1 = sqrtf(f);
+    float s2 = sqrtf(s1);
+    float s3 = sqrtf(s2);
+    return 0.662002687f * s1 + 0.684122060f * s2 - 0.323583601f * s3 - 0.0225411470f * f;
+}
+
+void Surface::toSrgb() {
     if (isNull()) return;
 
     detach();
 
     FloatImage * img = m->image;
 
-    const uint count = img->pixelCount();
-    for (uint c = 0; c < 3; c++) {
-        float * channel = img->channel(c);
-        for (uint i = 0; i < count; i++) {
-        //parallel_for(count, 128, [=](int i) {
-            channel[i] = ::toSrgb(channel[i]);
-        }//);
+    const uint count = 3 * img->pixelCount();
+    float * channel = img->channel(0);
+    for (uint i = 0; i < count; i++) {
+        channel[i] = ::toSrgb(channel[i]);
     }
 }
+
+void Surface::toSrgbFast() {
+    if (isNull()) return;
+
+    detach();
+
+    FloatImage * img = m->image;
+
+    const uint count = 3 * img->pixelCount();
+    float * channel = img->channel(0);
+    for (uint i = 0; i < count; i++) {
+        channel[i] = ::toSrgbFast(channel[i]);
+    }
+    //parallel_for(count, 128, [=](int i) {
+    //    channel[i] = toSrgbFast(channel[i]);
+    //});
+}
+
 
 static float fromSrgb(float f) {
     if (f < 0.0f)           f = 0.0f;
@@ -1525,23 +1548,47 @@ static float fromSrgb(float f) {
     return f;
 }
 
-void Surface::toLinearFromSrgb()
-{
+// sRGB approximation from: http://chilliant.blogspot.com/2012/08/srgb-approximations-for-hlsl.html
+static float fromSrgbFast(float f) {
+    f = saturate(f);
+    return f * (f * (f * 0.305306011f + 0.682171111f) + 0.012522878f);
+}
+
+
+void Surface::toLinearFromSrgb() {
     if (isNull()) return;
 
     detach();
 
     FloatImage * img = m->image;
 
-    const uint count = img->pixelCount();
-    for (uint c = 0; c < 3; c++) {
-        float * channel = img->channel(c);
-        for (uint i = 0; i < count; i++) {
-        //parallel_for(count, 128, [=](int i) {
-            channel[i] = ::fromSrgb(channel[i]);
-        }//);
+    const uint count = 3  *img->pixelCount();
+    float * channel = img->channel(0);
+    for (uint i = 0; i < count; i++) {
+        channel[i] = ::fromSrgb(channel[i]);
     }
+    //parallel_for(count, 128, [=](int i) {
+    //    channel[i] = ::fromSrgb(channel[i]);
+    //});
 }
+
+void Surface::toLinearFromSrgbFast() {
+    if (isNull()) return;
+
+    detach();
+
+    FloatImage * img = m->image;
+
+    const uint count = 3 * img->pixelCount();
+    float * channel = img->channel(0);
+    for (uint i = 0; i < count; i++) {
+        channel[i] = ::fromSrgbFast(channel[i]);
+    }
+    //parallel_for(count, 128, [=](int i) {
+    //    channel[i] = ::fromSrgbFast(channel[i]);
+    //});
+}
+
 
 static float toXenonSrgb(float f) {
     if (f < 0)                  f = 0;
@@ -1946,7 +1993,7 @@ static Color32 toRgbe8(float r, float g, float b)
     }
     else {
         int e;
-        v = frexp(v, &e) * 256.0f / v;
+        v = frexpf(v, &e) * 256.0f / v;
         c.r = uint8(clamp(r * v, 0.0f, 255.0f));
         c.g = uint8(clamp(g * v, 0.0f, 255.0f));
         c.b = uint8(clamp(b * v, 0.0f, 255.0f));
@@ -2798,13 +2845,13 @@ void Surface::transformNormals(NormalTransform xform)
             float discriminant = b * b - 4.0f * a * c;
             float t = (-b + sqrtf(discriminant)) / (2.0f * a);
 
-            float d = fabs(n.z * t - (1 - n.x*n.x*t*t) * (1 - n.y*n.y*t*t));
+            float d = fabsf(n.z * t - (1 - n.x*n.x*t*t) * (1 - n.y*n.y*t*t));
 
             while (d > 0.0001) {
                 float ft = 1 - n.z * t - (n.x*n.x + n.y*n.y)*t*t + n.x*n.x*n.y*n.y*t*t*t*t;
                 float fit = - n.z - 2*(n.x*n.x + n.y*n.y)*t + 4*n.x*n.x*n.y*n.y*t*t*t;
                 t -= ft / fit;
-                d = fabs(n.z * t - (1 - n.x*n.x*t*t) * (1 - n.y*n.y*t*t));
+                d = fabsf(n.z * t - (1 - n.x*n.x*t*t) * (1 - n.y*n.y*t*t));
             };
 
             n.x = n.x * t;
